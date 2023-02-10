@@ -1,3 +1,5 @@
+<img src="./toolformer.png" width="500px"></img>
+
 ## Toolformer - Pytorch (wip)
 
 Implementation of <a href="https://arxiv.org/abs/2302.04761">Toolformer</a>, Language Models That Can Use Tools, by MetaAI
