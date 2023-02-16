@@ -1,6 +1,5 @@
 import torch
 from torch import nn, einsum
-import torch.nn.functional as F
 from einops import rearrange
 
 # helpers
@@ -10,17 +9,18 @@ def exists(val):
 
 
 # normalization
-# Layernorm without bias
 
 
-class LayerNorm(nn.Module):
-    def __init__(self, dim):
+class RMSNorm(nn.Module):
+    def __init__(self, dim, eps = 1e-8):
         super().__init__()
-        self.gamma = nn.Parameter(torch.ones(dim))
-        self.register_buffer("beta", torch.zeros(dim))
+        self.scale = dim ** -0.5
+        self.eps = eps
+        self.g = nn.Parameter(torch.ones(dim))
 
     def forward(self, x):
-        return F.layer_norm(x, x.shape[-1:], self.gamma, self.beta)
+        norm = torch.norm(x, dim = -1, keepdim = True) * self.scale
+        return x / norm.clamp(min = self.eps) * self.g
 
 
 # rotary positional embedding
@@ -48,59 +48,43 @@ def rotate_half(x):
 def apply_rotary_pos_emb(pos, t):
     return (t * pos.cos()) + (rotate_half(t) * pos.sin())
 
-
-# FeedFoward
-
-
-class FeedForward(nn.Module):
-    def __init__(
-        self, 
-        dim, 
-        ff_mult=4, 
-        dropout=0.
-    ):
-        super().__init__()
-        ff_inner_dim = int(dim * ff_mult)
-
-        self.ff_out = nn.Sequential(
-            nn.Linear(dim, ff_inner_dim),
-            nn.GELU(),
-            nn.Dropout(dropout),
-            nn.Linear(ff_inner_dim, dim),
-        )
-
-    def forward(self, x):
-        return self.ff_out(x)
-
-
+ 
 # all we need
 
 
-class Attention(nn.Module):
-    def __init__(
-        self,
-        dim,
-        causal = False,
-        dim_head = 64,
-        heads = 8,
-        dropout = 0.
-    ):
+class ParallelTransformerBlock(nn.Module):
+    def __init__(self, dim, dim_head=64, heads=8, ff_mult=4):
         super().__init__()
+        self.norm = RMSNorm(dim)
+
+        attn_inner_dim = dim_head * heads
+        ff_inner_dim = dim * ff_mult
+        self.fused_dims = (attn_inner_dim, dim_head, dim_head, (ff_inner_dim))
+
         self.heads = heads
-        self.scale = dim_head ** -0.5
+        self.scale = dim_head**-0.5
         self.rotary_emb = RotaryEmbedding(dim_head)
-        self.causal = causal
-        inner_dim = dim_head * heads
 
-        self.norm = LayerNorm(dim)
+        self.fused_attn_ff_proj = nn.Linear(dim, sum(self.fused_dims), bias=False)
+        self.attn_out = nn.Linear(attn_inner_dim, dim, bias=False)
 
-        self.to_q = nn.Linear(dim, inner_dim, bias = False)
-        self.to_kv = nn.Linear(dim, inner_dim * 2, bias = False)
-        self.to_out = nn.Linear(inner_dim, dim, bias = False)
+        self.ff_out = nn.Sequential(
+            nn.GELU(),
+            nn.Linear(ff_inner_dim, dim, bias=False)
+        )
 
-        self.attn_dropout = nn.Dropout(dropout)
+        # for caching causal mask and rotary embeddings
 
+        self.register_buffer("mask", None, persistent=False)
         self.register_buffer("pos_emb", None, persistent=False)
+
+    def get_mask(self, n, device):
+        if self.mask is not None and self.mask.shape[-1] >= n:
+            return self.mask[:n, :n]
+
+        mask = torch.ones((n, n), device=device, dtype=torch.bool).triu(1)
+        self.register_buffer("mask", mask, persistent=False)
+        return mask
 
     def get_rotary_embedding(self, n, device):
         if self.pos_emb is not None and self.pos_emb.shape[-2] >= n:
@@ -110,24 +94,31 @@ class Attention(nn.Module):
         self.register_buffer("pos_emb", pos_emb, persistent=False)
         return pos_emb
 
-    def forward(
-        self,
-        x,
-        mask = None
-    ):
-        b, n, _, device, h = *x.shape, x.device, self.heads
+    def forward(self, x):
+        """
+        einstein notation
+        b - batch
+        h - heads
+        n, i, j - sequence length (base sequence length, source, target)
+        d - feature dimension
+        """
 
-        # prenorm
+        n, device, h = x.shape[1], x.device, self.heads
+
+        # pre layernorm
 
         x = self.norm(x)
 
-        # project for queries, keys, values
+        # attention queries, keys, values, and feedforward inner
 
-        q, k, v = self.to_q(x), *self.to_kv(x).chunk(2, dim = -1)
+        q, k, v, ff = self.fused_attn_ff_proj(x).split(self.fused_dims, dim=-1)
 
-        # split for multi-headed attention
+        # split heads
+        # they use multi-query single-key-value attention, yet another Noam Shazeer paper
+        # they found no performance loss past a certain scale, and more efficient decoding obviously
+        # https://arxiv.org/abs/1911.02150
 
-        q, k, v = map(lambda t: rearrange(t, 'b n (h d) -> b h n d', h = self.heads), (q, k, v))
+        q = rearrange(q, "b n (h d) -> b h n d", h=h)
 
         # rotary embeddings
 
@@ -138,52 +129,27 @@ class Attention(nn.Module):
 
         q = q * self.scale
 
-        # similarities
+        # similarity
 
-        sim = einsum('b h i d, b h j d -> b h i j', q, k)
+        sim = einsum("b h i d, b j d -> b h i j", q, k)
 
-        if exists(mask):
-            mask = rearrange(mask, 'b j -> b 1 1 j')
-            sim = sim.masked_fill(~mask, -torch.finfo(sim.dtype).max)
+        # causal mask
 
-        if self.causal:
-            i, j = sim.shape[-2:]
-            causal_mask = torch.ones((i, j), dtype = torch.bool, device = x.device).triu(j - i + 1)
-            sim = sim.masked_fill(causal_mask, -torch.finfo(sim.dtype).max)
+        causal_mask = self.get_mask(n, device)
+        sim = sim.masked_fill(causal_mask, -torch.finfo(sim.dtype).max)
 
         # attention
 
-        attn = sim.softmax(dim = -1)
-        attn = self.attn_dropout(attn)
+        attn = sim.softmax(dim=-1)
 
-        # aggregate
+        # aggregate values
 
-        out = einsum('b h i j, b h j d -> b h i d', attn, v)
+        out = einsum("b h i j, b j d -> b h i d", attn, v)
 
         # merge heads
 
-        out = rearrange(out, 'b h n d -> b n (h d)')
-        return self.to_out(out)
-
-
-# GPTJ Block
-
-
-class GPTJBlock(nn.Module):
-    def __init__(
-        self, 
-        dim, 
-        dim_head=64, 
-        heads=8, 
-        ff_mult=4, 
-        dropout=0.
-    ):
-        super().__init__()
-        self.attn = Attention(dim, dim_head=dim_head, heads=heads)
-        self.ffn = FeedForward(dim, ff_mult=ff_mult, dropout=dropout)
-
-    def forward(self, x):
-        return self.ffn(x) + self.attn(x)
+        out = rearrange(out, "b h n d -> b n (h d)")
+        return self.attn_out(out) + self.ff_out(ff)
 
 
 # Transformer
@@ -197,14 +163,13 @@ class Transformer(nn.Module):
         heads, 
         dim_head, 
         ff_mult=4,
-        dropout=0., 
     ):
         super().__init__()
         self.layers = nn.ModuleList([])
 
         for _ in range(depth):
             self.layers.append(
-                GPTJBlock(dim, dim_head=dim_head, heads=heads, ff_mult=ff_mult, dropout=dropout), 
+                ParallelTransformerBlock(dim, dim_head, heads, ff_mult), 
             )
 
     def forward(self, x):
@@ -214,6 +179,7 @@ class Transformer(nn.Module):
 
 
 # classes
+
 
 class Toolformer(nn.Module):
     def __init__(
@@ -229,7 +195,7 @@ class Toolformer(nn.Module):
         super().__init__()
 
         self.emb = nn.Embedding(num_tokens, dim)
-        self.transformer = Transformer(dim, depth, heads, dim_head, ff_mult, dropout)
+        self.transformer = Transformer(dim, depth, heads, dim_head, ff_mult)
         self.to_logits = nn.Linear(dim, num_tokens)
 
     def forward(self, x):
