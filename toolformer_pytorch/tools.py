@@ -1,5 +1,7 @@
 import requests
+import calendar
 import wolframalpha
+import datetime
 from transformers import AutoModelForSeq2SeqLM, AutoTokenizer
 
 # Optional Tool imports
@@ -19,7 +21,8 @@ output - A string, the answer to the input query
 
 wolfarm_alpha_appid - your Wolfram Alpha API key
 '''
-def calculator(input_query: str, wolfram_alpha_appid: str):
+def Calculator(input_query: str):
+    wolfram_alpha_appid = 'YOUR_WOLFRAM_ALPHA_APPID'
     wolfram_client = wolframalpha.Client(wolfram_alpha_appid)
     res = wolfram_client.query(input_query)
     assumption = next(res.pods).text
@@ -57,7 +60,8 @@ def colbertv2_get_request(url: str, query: str, k: int):
     topk = res.json()['topk'][:k]
     return topk
 
-def wikipedia_search(input_query: str, k: int = 10):
+def WikiSearch(input_query: str):
+    k = 10
     retrieval_model = ColBERTv2('http://ec2-44-228-128-229.us-west-2.compute.amazonaws.com:8893/api/search')
     output = retrieval_model(input_query, k)
     return output
@@ -72,7 +76,8 @@ input_query - A string, the input query (e.g. "what is a dog?")
 
 output - A string, the translated input query.
 '''
-def machine_translation_system(input_query: str, model_name: str = "facebook/nllb-200-distilled-600M"):
+def MT(input_query: str):
+    model_name = "facebook/nllb-200-distilled-600M"
     tokenizer = AutoTokenizer.from_pretrained(model_name)
     model = AutoModelForSeq2SeqLM.from_pretrained(model_name)
     input_ids = tokenizer(input_query, return_tensors='pt')
@@ -83,13 +88,21 @@ def machine_translation_system(input_query: str, model_name: str = "facebook/nll
     output = tokenizer.batch_decode(outputs, skip_special_tokens=True)[0]
     return output
 
+
+'''
+Calendar
+
+Uses Python's datetime and calendar libraries to retrieve the current date.
+
+output - A string, the current date.
+'''
+def Calendar():
+    now = datetime.datetime.now()
+    return f'Today is {calendar.day_name[now.weekday()]}, {calendar.month_name[now.month]} {now.day}, {now.year}'
+
+
 # WIP
 def question_answering_system():
-    pass
-
-
-# WIP
-def calendar():
     pass
 
 
@@ -167,11 +180,13 @@ def bing_search(input_query: str, bing_subscription_key: str, num_results: int):
 
 if __name__ == '__main__':
     
-    print(calculator('What is 2 + 2?', 'YOUR_API_KEY_HERE')) # 4
+    print(Calculator('What is 2 + 2?')) # 4
     
-    print(wikipedia_search('what is a dog?', k=10)) # Outputs a list of strings, each string is a Wikipedia document
+    print(WikiSearch('what is a dog?')) # Outputs a list of strings, each string is a Wikipedia document
 
-    print(machine_translation_system("Un chien c'est quoi?")) # What is a dog?
+    print(MT("Un chien c'est quoi?")) # What is a dog?
+
+    print(Calendar()) # Outputs a string, the current date
 
     # Optional Tools
     print(google_search('what is a dog?', api_key="YOUR_GOOGLE_API_KEY", cse_id="YOUR_CSE_ID", num_results=10)) # Outputs a list of dictionaries, each dictionary is a Google Search result
