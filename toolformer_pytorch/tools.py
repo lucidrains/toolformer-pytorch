@@ -105,7 +105,7 @@ def Calculator(input_query: str):
     for c in operators.keys():
         left, operator, right = input_query.partition(c)
         if operator in operators:
-            return operators[operator](Calculator(left), Calculator(right))
+            return round(operators[operator](Calculator(left), Calculator(right)), 2)
 
 
 # Other Optional Tools

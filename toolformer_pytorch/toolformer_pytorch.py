@@ -190,7 +190,6 @@ class Toolformer(nn.Module):
         dim_head=64, 
         heads=8, 
         ff_mult=4,
-        dropout=0.
     ):
         super().__init__()
 
@@ -212,7 +211,6 @@ if __name__ == "__main__":
         dim_head = 64,
         heads = 8,
         ff_mult = 4,
-        dropout = 0.
     )
     tokens = torch.randint(0, 20000, (1, 512))
     logits = toolformer(tokens)
