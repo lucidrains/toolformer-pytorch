@@ -3,31 +3,24 @@ import calendar
 import wolframalpha
 import datetime
 from transformers import AutoModelForSeq2SeqLM, AutoTokenizer
+from operator import pow, truediv, mul, add, sub  
 
-# Optional Tool imports
+# Optional imports
 from googleapiclient.discovery import build
-
+    
 
 '''
-Calculator
+Calendar
 
-pip install wolframalpha
+Uses Python's datetime and calendar libraries to retrieve the current date.
 
-Uses Wolfram Alpha API to calculate input query.
+input - None
 
-input_query - A string, the input query (e.g. "what is 2 + 2?")
-
-output - A string, the answer to the input query
-
-wolfarm_alpha_appid - your Wolfram Alpha API key
+output - A string, the current date.
 '''
-def Calculator(input_query: str):
-    wolfram_alpha_appid = 'YOUR_WOLFRAM_ALPHA_APPID'
-    wolfram_client = wolframalpha.Client(wolfram_alpha_appid)
-    res = wolfram_client.query(input_query)
-    assumption = next(res.pods).text
-    answer = next(res.results).text
-    return f'Assumption: {assumption} \nAnswer: {answer}'
+def Calendar():
+    now = datetime.datetime.now()
+    return f'Today is {calendar.day_name[now.weekday()]}, {calendar.month_name[now.month]} {now.day}, {now.year}.'
 
 
 '''
@@ -90,23 +83,55 @@ def MT(input_query: str):
 
 
 '''
-Calendar
+Calculator
 
-Uses Python's datetime and calendar libraries to retrieve the current date.
+Calculates the result of a mathematical expression.
 
-output - A string, the current date.
+input_query - A string, the input query (e.g. "400/1400")
+
+output - A float, the result of the calculation
+
+Adapted from: https://levelup.gitconnected.com/3-ways-to-write-a-calculator-in-python-61642f2e4a9a 
 '''
-def Calendar():
-    now = datetime.datetime.now()
-    return f'Today is {calendar.day_name[now.weekday()]}, {calendar.month_name[now.month]} {now.day}, {now.year}'
+def Calculator(input_query: str):
+    operators = {
+        '+': add,
+        '-': sub,
+        '*': mul,
+        '/': truediv
+        }
+    if input_query.isdigit():
+        return float(input_query)
+    for c in operators.keys():
+        left, operator, right = input_query.partition(c)
+        if operator in operators:
+            return operators[operator](Calculator(left), Calculator(right))
 
 
-# WIP
-def question_answering_system():
-    pass
+# Other Optional Tools
 
 
-# Other Optional Search Tools
+'''
+Wolfram Alpha Calculator
+
+pip install wolframalpha
+
+Uses Wolfram Alpha API to calculate input query.
+
+input_query - A string, the input query (e.g. "what is 2 + 2?")
+
+output - A string, the answer to the input query
+
+wolfarm_alpha_appid - your Wolfram Alpha API key
+'''
+def WolframAlphaCalculator(input_query: str):
+    wolfram_alpha_appid = 'YOUR_WOLFRAM_ALPHA_APPID'
+    wolfram_client = wolframalpha.Client(wolfram_alpha_appid)
+    res = wolfram_client.query(input_query)
+    assumption = next(res.pods).text
+    answer = next(res.results).text
+    return f'Assumption: {assumption} \nAnswer: {answer}'
+
 
 '''
 Google Search
@@ -125,8 +150,10 @@ def custom_search(query, api_key, cse_id, **kwargs):
     res = service.cse().list(q=query, cx=cse_id, **kwargs).execute()
     return res['items']
 
-def google_search(input_query: str, api_key: str, cse_id: str, num_results: int = 10):
-    """Searches the API for the query."""
+def google_search(input_query: str):
+    api_key = "YOUR_GOOGLE_API_KEY"
+    cse_id = 'YOUR_GOOGLE_CSE_ID' 
+    num_results = 10
     metadata_results = []
     results = custom_search(input_query, num=num_results, api_key=api_key, cse_id=cse_id)
     for result in results:
@@ -165,7 +192,9 @@ def _bing_search_results(search_term: str, bing_subscription_key: str, count: in
     search_results = response.json()
     return search_results["webPages"]["value"]
 
-def bing_search(input_query: str, bing_subscription_key: str, num_results: int):
+def bing_search(input_query: str):
+    bing_subscription_key = "YOUR BING API KEY" 
+    num_results = 10
     metadata_results = []
     results = _bing_search_results(input_query, bing_subscription_key, count=num_results)
     for result in results:
@@ -179,16 +208,22 @@ def bing_search(input_query: str, bing_subscription_key: str, num_results: int):
 
 
 if __name__ == '__main__':
-    
-    print(Calculator('What is 2 + 2?')) # 4
-    
-    print(WikiSearch('what is a dog?')) # Outputs a list of strings, each string is a Wikipedia document
+ 
+    print(Calendar()) # Outputs a string, the current date
+
+    print(Calculator('400/1400')) # For Optional Basic Calculator
+
+    print(WikiSearch('What is a dog?')) # Outputs a list of strings, each string is a Wikipedia document
 
     print(MT("Un chien c'est quoi?")) # What is a dog?
 
-    print(Calendar()) # Outputs a string, the current date
 
     # Optional Tools
-    print(google_search('what is a dog?', api_key="YOUR_GOOGLE_API_KEY", cse_id="YOUR_CSE_ID", num_results=10)) # Outputs a list of dictionaries, each dictionary is a Google Search result
 
-    print(bing_search('what is a dog?', bing_subscription_key="YOUR_BING_API_KEY", num_results=10)) # Outputs a list of dictionaries, each dictionary is a Bing Search result
+    print(WolframAlphaCalculator('What is 2 + 2?')) # 4
+
+    print(google_search('What is a dog?')) 
+    # Outputs a list of dictionaries, each dictionary is a Google Search result
+
+    print(bing_search('What is a dog?')) 
+    # Outputs a list of dictionaries, each dictionary is a Bing Search result
