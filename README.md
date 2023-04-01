@@ -64,6 +64,7 @@ filtered_results = filter_tokens_with_api_response(
 ## Todo
 
 - [ ] create custom generate function for palm that can do external API calls
+    - [ ] allow for generating tokens at different cursor indices
 - [ ] do end-to-end training in `Toolformer`
 - [ ] hook up gpt-j
 - [ ] test for a simple calculator eval dataset
