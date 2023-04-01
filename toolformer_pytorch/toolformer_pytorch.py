@@ -44,10 +44,12 @@ def get_pred_prob(token_ids, logits):
     return rearrange(correct_token_id_pred_prob, 'b n 1 -> b n')
 
 def get_arange_start_at_token_id(token_ids, token_id, pad_id = -1):
-    arange = (token_ids == token_id).cumsum(dim = -1)
+    is_token_id_mask = token_ids == token_id
+    arange = (is_token_id_mask.cumsum(dim = -1) > 0).cumsum(dim = -1)
     before_token_mask = arange == 0
-    arange -= 1
-    return arange    
+    arange = arange - 1
+    arange = arange.masked_fill(before_token_mask, pad_id)
+    return arange
 
 FilteredResults = namedtuple('FilteredResults', [
     'selected_indices',
