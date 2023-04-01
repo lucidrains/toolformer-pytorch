@@ -1,217 +1,169 @@
+from functools import partial
+from collections import namedtuple
+
 import torch
 from torch import nn, einsum
-from einops import rearrange
+
+from einops import rearrange, reduce
+from toolformer_pytorch.palm import PaLM
+
+from beartype import beartype
+from beartype.typing import Callable
 
 # helpers
 
 def exists(val):
     return val is not None
 
+def default(val, d):
+    return val if exists(val) else d
 
-# normalization
+# tensor helpers
 
+def log(t, eps = 1e-20):
+    return t.clamp(min = eps).log()
 
-class RMSNorm(nn.Module):
-    def __init__(self, dim, eps = 1e-8):
-        super().__init__()
-        self.scale = dim ** -0.5
-        self.eps = eps
-        self.g = nn.Parameter(torch.ones(dim))
+def all_contains_id(t: torch.Tensor, token_id: int):
+    mask = t == token_id
+    return mask.any(dim = -1).all()
 
-    def forward(self, x):
-        norm = torch.norm(x, dim = -1, keepdim = True) * self.scale
-        return x / norm.clamp(min = self.eps) * self.g
+# the main contribution of the paper is simply the filtering equations presented in section 2
 
+def default_weight_fn(t):
+    # following the formula in section 4.1 - however, not sure what w_s is in the denominator
+    # if t stands for each timestep, this would also mean within 5 tokens it would diminish to 0?
+    return (1. - t * 0.2).clamp(min = 0.)
 
-# rotary positional embedding
-# https://arxiv.org/abs/2104.09864
+def get_pred_prob(token_ids, logits):
+    logits = logits[:, :-1]             # logits of each token...    (omit last logit)
+    token_ids = token_ids[:, 1:]        # predicts the next token id (omit first token id)
 
+    token_ids = rearrange(token_ids, 'b n -> b n 1')
+    probs = logits.softmax(dim = -1)
+    correct_token_id_pred_prob = probs.gather(-1, token_ids)
+    return rearrange(correct_token_id_pred_prob, 'b n 1 -> b n')
 
-class RotaryEmbedding(nn.Module):
-    def __init__(self, dim):
-        super().__init__()
-        inv_freq = 1.0 / (10000 ** (torch.arange(0, dim, 2).float() / dim))
-        self.register_buffer("inv_freq", inv_freq)
+def get_arange_start_at_token_id(token_ids, token_id, pad_id = -1):
+    arange = (token_ids == token_id).cumsum(dim = -1)
+    before_token_mask = arange == 0
+    arange -= 1
+    return arange    
 
-    def forward(self, max_seq_len, *, device):
-        seq = torch.arange(max_seq_len, device=device, dtype=self.inv_freq.dtype)
-        freqs = einsum("i , j -> i j", seq, self.inv_freq)
-        return torch.cat((freqs, freqs), dim=-1)
+FilteredResults = namedtuple('FilteredResults', [
+    'selected_indices',
+    'selected_mask',
+    'filtered_tokens',
+    'filtered_tokens_without_api_response',
+    'filtered_tokens_with_api_response'
+])
 
+@beartype
+def filter_tokens_with_api_response(
+    model: nn.Module,                              # the language model should accept the token ids below and return the logits in shape (batch, seq, num tokens)
+    *,
+    tokens: torch.Tensor,                          # token ids (batch, seq) of the original passage, without api calls
+    tokens_without_api_response: torch.Tensor,     # token ids (batch, seq) of the passage, but with the api call (but without a response filled in) - <api>tool1(x, y)</api>
+    tokens_with_api_response: torch.Tensor,        # token ids (batch, seq) of the passage with api call and the response - <api>tool1(x, y) → {response}</api>
+    api_start_token_id: int,                       # token id of the <api> tag
+    api_end_token_id: int,                         # token id of the </api> tag
+    filter_threshold: float = 1.,                  # the threshold at which to accept the sampled api call (tokens_with_api_response) for fine-tuning
+    weighting_fn: Callable = default_weight_fn     # weighting function
+) -> FilteredResults:
 
-def rotate_half(x):
-    x = rearrange(x, "... (j d) -> ... j d", j=2)
-    x1, x2 = x.unbind(dim=-2)
-    return torch.cat((-x2, x1), dim=-1)
+    # validations
 
+    assert all([*map(lambda t: t.dtype == torch.long, (tokens, tokens_with_api_response, tokens_without_api_response))])
 
-def apply_rotary_pos_emb(pos, t):
-    return (t * pos.cos()) + (rotate_half(t) * pos.sin())
+    assert all_contains_id(tokens_without_api_response, api_start_token_id)
+    assert all_contains_id(tokens_without_api_response, api_end_token_id)
 
- 
-# all we need
+    assert all_contains_id(tokens_with_api_response, api_start_token_id)
+    assert all_contains_id(tokens_with_api_response, api_end_token_id)
 
+    # get all the logits
 
-class ParallelTransformerBlock(nn.Module):
-    def __init__(self, dim, dim_head=64, heads=8, ff_mult=4):
-        super().__init__()
-        self.norm = RMSNorm(dim)
+    with torch.no_grad():
+        model.eval()
+        logits, logits_without_api_response, logits_with_api_response = map(model, (tokens, tokens_with_api_response, tokens_without_api_response))
 
-        attn_inner_dim = dim_head * heads
-        ff_inner_dim = dim * ff_mult
-        self.fused_dims = (attn_inner_dim, dim_head, dim_head, (ff_inner_dim))
+    # derive all predicted prob of the actual next token id in sequence
 
-        self.heads = heads
-        self.scale = dim_head**-0.5
-        self.rotary_emb = RotaryEmbedding(dim_head)
+    probs                       = get_pred_prob(tokens, logits)
+    probs_without_api_response  = get_pred_prob(tokens_without_api_response, logits_without_api_response)
+    probs_with_api_response     = get_pred_prob(tokens_with_api_response, logits_with_api_response)
 
-        self.fused_attn_ff_proj = nn.Linear(dim, sum(self.fused_dims), bias=False)
-        self.attn_out = nn.Linear(attn_inner_dim, dim, bias=False)
+    # derive the weighting
 
-        self.ff_out = nn.Sequential(
-            nn.GELU(),
-            nn.Linear(ff_inner_dim, dim, bias=False)
-        )
+    t_without_api_response = get_arange_start_at_token_id(tokens_without_api_response, api_end_token_id)
+    t_with_api_response = get_arange_start_at_token_id(tokens_with_api_response, api_end_token_id)
 
-        # for caching causal mask and rotary embeddings
+    t_without_api_response = t_without_api_response[:, :-1]
+    t_with_api_response = t_with_api_response[:, :-1]
 
-        self.register_buffer("mask", None, persistent=False)
-        self.register_buffer("pos_emb", None, persistent=False)
+    weight_without_api_response = weighting_fn(t_without_api_response)
+    weight_with_api_response = weighting_fn(t_with_api_response)
 
-    def get_mask(self, n, device):
-        if self.mask is not None and self.mask.shape[-1] >= n:
-            return self.mask[:n, :n]
+    weight_without_api_response = weight_without_api_response.masked_fill(t_without_api_response == -1, 0.)
+    weight_with_api_response = weight_without_api_response.masked_fill(t_with_api_response == -1, 0.)
 
-        mask = torch.ones((n, n), device=device, dtype=torch.bool).triu(1)
-        self.register_buffer("mask", mask, persistent=False)
-        return mask
+    # deriving the weighting for the original passage is more tricky
+    # would need to start counting up from <api> start token location
 
-    def get_rotary_embedding(self, n, device):
-        if self.pos_emb is not None and self.pos_emb.shape[-2] >= n:
-            return self.pos_emb[:n]
+    t = get_arange_start_at_token_id(tokens_without_api_response, api_start_token_id)
+    t = t[:, 1:]
 
-        pos_emb = self.rotary_emb(n, device=device)
-        self.register_buffer("pos_emb", pos_emb, persistent=False)
-        return pos_emb
+    weight = weighting_fn(t) # shift to the left by one since <api> does not exist in the original sequence
+    weight = weight.masked_fill(t == -1, 0.)
 
-    def forward(self, x):
-        """
-        einstein notation
-        b - batch
-        h - heads
-        n, i, j - sequence length (base sequence length, source, target)
-        d - feature dimension
-        """
+    # get the loss L for all three types of sequences
 
-        n, device, h = x.shape[1], x.device, self.heads
+    loss = (-weight * log(probs)).sum(dim = -1)
+    loss_without_api_response = (-weight_without_api_response * log(probs_without_api_response)).sum(dim = -1)
+    loss_with_api_response = (-weight_with_api_response * log(probs_with_api_response)).sum(dim = -1)
 
-        # pre layernorm
+    # calculate the main formula in the paper
 
-        x = self.norm(x)
+    # loss+ = loss with api response
+    # loss- = min(loss without api response, loss without api at all)
 
-        # attention queries, keys, values, and feedforward inner
+    loss_plus = loss_with_api_response
+    loss_minus = torch.minimum(loss_without_api_response, loss)
 
-        q, k, v, ff = self.fused_attn_ff_proj(x).split(self.fused_dims, dim=-1)
+    selected_mask = (loss_minus - loss_plus) >= filter_threshold
 
-        # split heads
-        # they use multi-query single-key-value attention, yet another Noam Shazeer paper
-        # they found no performance loss past a certain scale, and more efficient decoding obviously
-        # https://arxiv.org/abs/1911.02150
+    # now we can select and return the entries that survived the filtering stage
+    # also returning the selected indices of the batch being processed
+    # for finetuning the model into toolformer
 
-        q = rearrange(q, "b n (h d) -> b h n d", h=h)
+    batch = tokens.shape[0]
+    indices = torch.arange(batch, device = tokens.device)
 
-        # rotary embeddings
+    selected_indices = indices[selected_mask]
 
-        positions = self.get_rotary_embedding(n, device)
-        q, k = map(lambda t: apply_rotary_pos_emb(positions, t), (q, k))
+    ret = FilteredResults(
+        selected_indices,
+        selected_mask,
+        tokens[selected_mask],
+        tokens_without_api_response[selected_mask],
+        tokens_with_api_response[selected_mask]
+    )
 
-        # scale
-
-        q = q * self.scale
-
-        # similarity
-
-        sim = einsum("b h i d, b j d -> b h i j", q, k)
-
-        # causal mask
-
-        causal_mask = self.get_mask(n, device)
-        sim = sim.masked_fill(causal_mask, -torch.finfo(sim.dtype).max)
-
-        # attention
-
-        attn = sim.softmax(dim=-1)
-
-        # aggregate values
-
-        out = einsum("b h i j, b j d -> b h i d", attn, v)
-
-        # merge heads
-
-        out = rearrange(out, "b h n d -> b n (h d)")
-        return self.attn_out(out) + self.ff_out(ff)
-
-
-# Transformer
-
-
-class Transformer(nn.Module):
-    def __init__(
-        self, 
-        dim, 
-        depth, 
-        heads, 
-        dim_head, 
-        ff_mult=4,
-    ):
-        super().__init__()
-        self.layers = nn.ModuleList([])
-
-        for _ in range(depth):
-            self.layers.append(
-                ParallelTransformerBlock(dim, dim_head, heads, ff_mult), 
-            )
-
-    def forward(self, x):
-        for block in self.layers:
-            x = block(x) + x
-        return x
-
+    return ret
 
 # classes
 
-
+@beartype
 class Toolformer(nn.Module):
     def __init__(
-        self, 
-        dim, 
-        num_tokens, 
-        depth, 
-        dim_head=64, 
-        heads=8, 
-        ff_mult=4,
+        self,
+        model: nn.Module,
+        tool: Callable,
+        teach_tool_prompt: str
     ):
         super().__init__()
+        self.model = model
+        self.tool = tool
+        self.teach_tool_prompt = teach_tool_prompt
 
-        self.emb = nn.Embedding(num_tokens, dim)
-        self.transformer = Transformer(dim, depth, heads, dim_head, ff_mult)
-        self.to_logits = nn.Linear(dim, num_tokens)
-
-    def forward(self, x):
-        x = self.emb(x)
-        x = self.transformer(x)
-        x = self.to_logits(x)
-        return x
-
-if __name__ == "__main__":
-    toolformer = Toolformer(
-        num_tokens = 20000,
-        dim = 512,
-        depth = 6,
-        dim_head = 64,
-        heads = 8,
-        ff_mult = 4,
-    )
-    tokens = torch.randint(0, 20000, (1, 512))
-    logits = toolformer(tokens)
-    print(logits.shape)
+    def forward(self):
+        raise NotImplementedError
