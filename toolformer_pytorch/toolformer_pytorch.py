@@ -2,13 +2,16 @@ from functools import partial
 from collections import namedtuple
 
 import torch
+import torch.nn.functional as F
 from torch import nn, einsum
 
 from einops import rearrange, reduce
 from toolformer_pytorch.palm import PaLM
 
 from beartype import beartype
-from beartype.typing import Callable
+from beartype.typing import Callable, Optional
+
+from tqdm import tqdm
 
 # helpers
 
@@ -23,9 +26,104 @@ def default(val, d):
 def log(t, eps = 1e-20):
     return t.clamp(min = eps).log()
 
+def gumbel_noise(t):
+    noise = torch.zeros_like(t).uniform_(0, 1)
+    return -log(-log(noise))
+
+def gumbel_sample(t, temperature = 1., dim = -1, eps = 1e-10):
+    if temperature == 0:
+        return t.argmax(dim = dim)
+
+    return ((t / max(temperature, eps)) + gumbel_noise(t)).argmax(dim = dim)
+
+def top_k(logits, thres = 0.9):
+    k = math.ceil((1 - thres) * logits.shape[-1])
+    val, indices = torch.topk(logits, k)
+    probs = torch.full_like(logits, -torch.finfo(logits.dtype).max)
+    probs.scatter_(1, indices, val)
+    return probs
+
 def all_contains_id(t: torch.Tensor, token_id: int):
     mask = t == token_id
     return mask.any(dim = -1).all()
+
+# sampling api related functions
+# they do greedy sampling, but encourage sampling api calls by auto-selecting <api> when that token is in the top k = 10
+
+@torch.no_grad()
+def sample(
+    model: nn.Module,
+    *,
+    seq_len,
+    api_start_token_id,
+    select_api_start_id_top_k = 10,
+    prime: Optional[torch.Tensor] = None,
+    positions: Optional[torch.Tensor] = None,
+    batch_size = 1,
+    eos_token_id = None,
+    sos_token_id = 1,
+    temperature = 0.,
+    pad_id = 0
+):
+    device = next(model.parameters()).device
+    max_seq_len = seq_len + 1
+
+    # prime
+
+    if exists(prime):
+        batch_size, prime_length = prime.shape
+    else:
+        prime_length = 1
+        prime = torch.full((batch_size, 1), sos_token_id, device = device, dtype = torch.long)
+
+    prime = prime.to(device)
+
+    # sampling positions - different sequences have different cursors
+
+    positions = default(positions, torch.zeros((batch_size,), device = device, dtype = torch.long))
+    assert (positions <= prime_length).all() and (positions < max_seq_len).all(), 'all positions must be less then initial prime length as well as the total sequence length + 1 (plus one for noop if one sequence finished sampling before the other)'
+
+    # eval model
+
+    model.eval()
+
+    # lengthen the prime to the entire sequence length
+
+    remain_iterations = seq_len - prime_length
+    output = F.pad(prime, (max_seq_len - prime_length, 0), value = 0.)
+
+    batch_indices = torch.arange(batch_size, device = device)
+    batch_indices = rearrange(batch_indices, 'b -> b 1')
+    position_indices = rearrange(positions, 'b -> b 1')
+
+    # start iterating
+
+    for iteration in tqdm(range(remain_iterations)):
+        logits = model(output)
+        last_logits = logits[batch_indices, position_indices]
+
+        sampled = gumbel_sample(last_logits, temperature = temperature)
+
+        output[batch_indices, position_indices] = sampled
+
+        position_indices += 1
+        position_indices.clamp_(max = seq_len)
+
+        if exists(eos_token_id):
+            eos_mask = (output == eos_token_id)
+            all_rows_have_eos = eos_mask.any(dim = -1).all()
+
+            if all_rows_have_eos:
+                keep_mask = eos_mask.cumsum(dim = -1) == 0
+                keep_mask = F.pad(keep_mask, (1, 0), value = True)
+                output = output.masked_fill(~keep_mask, pad_id)
+                break
+
+    # remove the last token in output (use as noop placeholder)
+
+    output = output[:, :-1]
+
+    return output
 
 # the main contribution of the paper is simply the filtering equations presented in section 2
 
