@@ -96,18 +96,49 @@ def sample(
     batch_indices = rearrange(batch_indices, 'b -> b 1')
     position_indices = rearrange(positions, 'b -> b 1')
 
+    # determine the <api> token mask, for making sure api is called only once, masking out logit to prevent it from being selected for those rows which already contains an <api> token
+
+    api_token_mask = None # lazily created, since do not know logit dimensions
+
+    def create_api_token_mask(num_tokens, api_start_token_id):
+        mask = torch.zeros((1, 1, num_tokens), dtype = torch.bool)
+        assert api_start_token_id < num_tokens
+        mask[..., api_start_token_id] = True
+        return mask
+
     # start iterating
 
     for iteration in tqdm(range(remain_iterations)):
         logits = model(output)
         last_logits = logits[batch_indices, position_indices]
 
+        if not exists(api_token_mask):
+            num_tokens = last_logits.shape[-1]
+            api_token_mask = create_api_token_mask(num_tokens, api_start_token_id)
+            api_token_mask = api_token_mask.to(device)
+
+        api_called = (output == api_start_token_id).any(dim = -1)
+        api_called = rearrange(api_called, 'b -> b 1 1')
+
+        # this will ensure that each batch token sequence will have at most one <api> token
+
+        logit_mask = api_token_mask & api_called
+        last_logits = last_logits.masked_fill(logit_mask, -torch.finfo(last_logits.dtype).max)
+
+        # greedy sample (but could be made non-greedy)
+
         sampled = gumbel_sample(last_logits, temperature = temperature)
+
+        # set the sampled tokens at the right curosr positions
 
         output[batch_indices, position_indices] = sampled
 
+        # increment positions
+
         position_indices += 1
-        position_indices.clamp_(max = seq_len)
+        position_indices.clamp_(max = seq_len) # noop if one sequence is further along and near the end
+
+        # if using <eos> tokens, look for all sequences having it and terminate, also anything after <eos> will be padded
 
         if exists(eos_token_id):
             eos_mask = (output == eos_token_id)
