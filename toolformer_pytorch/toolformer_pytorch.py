@@ -118,16 +118,26 @@ def sample(
             api_token_mask = api_token_mask.to(device)
 
         api_called = (output == api_start_token_id).any(dim = -1)
-        api_called = rearrange(api_called, 'b -> b 1 1')
 
         # this will ensure that each batch token sequence will have at most one <api> token
 
-        logit_mask = api_token_mask & api_called
+        logit_mask = api_token_mask & rearrange(api_called, 'b -> b 1 1')
         last_logits = last_logits.masked_fill(logit_mask, -torch.finfo(last_logits.dtype).max)
 
         # greedy sample (but could be made non-greedy)
 
         sampled = gumbel_sample(last_logits, temperature = temperature)
+
+        # for those sequences without an api call, if the api_start_token_id is within top k (set to 10 in paper) of logits, just auto-select
+
+        # seems to be an important hack in the paper
+        # it seems like this paper will take a lot more follow up research to be viable
+
+        top_token_ids = last_logits.topk(select_api_start_id_top_k, dim = -1).indices
+        has_api_token_in_topk = (top_token_ids == api_start_token_id).any(dim = -1)
+        should_auto_select_api_token = has_api_token_in_topk & ~rearrange(api_called, 'b -> b 1')
+
+        sampled = sampled.masked_fill(should_auto_select_api_token, api_start_token_id)
 
         # set the sampled tokens at the right curosr positions
 
