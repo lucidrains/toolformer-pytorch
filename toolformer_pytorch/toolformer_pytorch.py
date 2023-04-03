@@ -43,13 +43,27 @@ def get_pred_prob(token_ids, logits):
     correct_token_id_pred_prob = probs.gather(-1, token_ids)
     return rearrange(correct_token_id_pred_prob, 'b n 1 -> b n')
 
-def get_arange_start_at_token_id(token_ids, token_id, pad_id = -1):
+def get_arange_start_at_token_id(
+    token_ids: torch.Tensor,
+    token_id: int,
+    pad_id = -1
+):
     is_token_id_mask = token_ids == token_id
     arange = (is_token_id_mask.cumsum(dim = -1) > 0).cumsum(dim = -1)
     before_token_mask = arange == 0
     arange = arange - 1
     arange = arange.masked_fill(before_token_mask, pad_id)
     return arange
+
+def weight_and_mask(
+    token_ids: torch.Tensor,
+    token_id: int,
+    pad_id = -1,
+    weighting_fn: Callable = default_weight_fn
+):
+    t = get_arange_start_at_token_id(token_ids, token_id, pad_id)
+    weights = weighting_fn(t)
+    return weights.masked_fill(weights == pad_id, 0.)
 
 FilteredResults = namedtuple('FilteredResults', [
     'selected_indices',
@@ -94,34 +108,26 @@ def filter_tokens_with_api_response(
     probs_without_api_response  = get_pred_prob(tokens_without_api_response, logits_without_api_response)
     probs_with_api_response     = get_pred_prob(tokens_with_api_response, logits_with_api_response)
 
+    weight_and_mask_fn = partial(weight_and_mask, weighting_fn = weighting_fn)
+
     # derive the weighting
 
-    t_without_api_response = get_arange_start_at_token_id(tokens_without_api_response, api_end_token_id)
-    t_with_api_response = get_arange_start_at_token_id(tokens_with_api_response, api_end_token_id)
-
-    t_without_api_response = t_without_api_response[:, :-1]
-    t_with_api_response = t_with_api_response[:, :-1]
-
-    weight_without_api_response = weighting_fn(t_without_api_response)
-    weight_with_api_response = weighting_fn(t_with_api_response)
-
-    weight_without_api_response = weight_without_api_response.masked_fill(t_without_api_response == -1, 0.)
-    weight_with_api_response = weight_without_api_response.masked_fill(t_with_api_response == -1, 0.)
+    weight_without_api_response = weight_and_mask_fn(tokens_without_api_response[:, :-1], api_end_token_id)
+    weight_with_api_response = weight_and_mask_fn(tokens_with_api_response[:, :-1], api_end_token_id)
 
     # deriving the weighting for the original passage is more tricky
     # would need to start counting up from <api> start token location
 
-    t = get_arange_start_at_token_id(tokens_without_api_response, api_start_token_id)
-    t = t[:, 1:]
-
-    weight = weighting_fn(t) # shift to the left by one since <api> does not exist in the original sequence
-    weight = weight.masked_fill(t == -1, 0.)
+    weight = weight_and_mask_fn(tokens_without_api_response[:, 1:], api_start_token_id) # shift to the left by one since <api> does not exist in the original sequence
 
     # get the loss L for all three types of sequences
 
-    loss = (-weight * log(probs)).sum(dim = -1)
-    loss_without_api_response = (-weight_without_api_response * log(probs_without_api_response)).sum(dim = -1)
-    loss_with_api_response = (-weight_with_api_response * log(probs_with_api_response)).sum(dim = -1)
+    def loss_fn(weight, probs):
+        return (weight * -log(probs)).sum(dim = -1)
+
+    loss = loss_fn(weight, probs)
+    loss_without_api_response = loss_fn(weight_without_api_response, probs_without_api_response)
+    loss_with_api_response = loss_fn(weight_with_api_response, probs_with_api_response)
 
     # calculate the main formula in the paper
 
