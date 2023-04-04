@@ -47,9 +47,19 @@ def all_contains_id(t: torch.Tensor, token_id: int):
     mask = t == token_id
     return mask.any(dim = -1).all()
 
+def find_indices_of(t: torch.Tensor, token_id: int, occurrence = 1):
+    assert occurrence > 0
+    mask = (t == token_id)
+
+    has_occurred = mask.cumsum(dim = -1)
+    has_occurred = F.pad(has_occurred, (1, 0), value = 0.)
+
+    return (has_occurred < occurrence).sum(dim = -1).long()
+
 # sampling api related functions
 # they do greedy sampling, but encourage sampling api calls by auto-selecting <api> when that token is in the top k = 10
 
+@beartype
 @torch.no_grad()
 def sample(
     model: nn.Module,
@@ -81,7 +91,7 @@ def sample(
     # sampling positions - different sequences have different cursors
 
     positions = default(positions, torch.zeros((batch_size,), device = device, dtype = torch.long))
-    assert (positions <= prime_length).all() and (positions < max_seq_len).all(), 'all positions must be less then initial prime length as well as the total sequence length + 1 (plus one for noop if one sequence finished sampling before the other)'
+    assert (positions <= (prime_length + 1)).all() and (positions <= max_seq_len).all(), 'all positions must be less then initial prime length as well as the total sequence length + 1 (plus one for noop if one sequence finished sampling before the other)'
 
     # eval model
 
@@ -165,6 +175,46 @@ def sample(
     output = output[:, :-1]
 
     return output
+
+@beartype
+@torch.no_grad()
+def sample_with_api_call(
+    model: nn.Module,
+    *,
+    seq_len,
+    call_apis: Callable,
+    prime: torch.Tensor,
+    api_end_token_id: int,
+    occurrence = 1,
+    **kwargs
+):
+    sampled = sample(
+        model = model,
+        prime = prime,
+        seq_len = seq_len,
+        **kwargs
+    )
+
+    sampled = call_apis(sampled)
+
+    sampled_seq_len = sampled.shape[-1]
+    null_positions = sampled_seq_len + 1 # handle sequences that do not have api calls
+
+    pos_starting_at_end_of_api = find_indices_of(
+        sampled,
+        api_end_token_id,
+        occurrence = occurrence
+    )
+
+    resample_after_api_calls = sample(
+        model = model,
+        prime = sampled,
+        seq_len = sampled_seq_len,
+        positions = (pos_starting_at_end_of_api + 1).clamp(max = null_positions), # start at the position right after the </api>
+        **kwargs
+    )
+
+    return resample_after_api_calls
 
 # the main contribution of the paper is simply the filtering equations presented in section 2
 
