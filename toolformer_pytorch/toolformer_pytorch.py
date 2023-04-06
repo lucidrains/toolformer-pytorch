@@ -1,3 +1,5 @@
+import re
+
 from functools import partial, wraps
 from collections import namedtuple
 
@@ -9,7 +11,7 @@ from einops import rearrange, reduce
 from toolformer_pytorch.palm import PaLM
 
 from beartype import beartype
-from beartype.typing import Callable, Optional
+from beartype.typing import Callable, Optional, Union
 
 from tqdm import tqdm
 
@@ -58,7 +60,72 @@ def find_indices_of(t: torch.Tensor, token_id: int, occurrence = 1):
 
 # invoking api call functions
 
+def is_valid_string(s):
+    return exists(re.fullmatch(r"'[^']*'|\"[^\"]*\"", s))
 
+def is_valid_integer(s):
+    return exists(re.fullmatch(r"[+-]?\d+", s))
+
+def is_valid_float(s):
+    return exists(re.fullmatch(r"[+-]?\d+(\.\d+)?", s))
+
+def parse_param(s: str) -> Optional[Union[int, float, str]]:
+    if is_valid_string(s):
+        return str(s)
+    elif is_valid_integer(s):
+        return int(s)
+    elif is_valid_float(s):
+        return float(s)
+
+    return None
+
+@beartype
+def replace_fn(
+    registry: dict[str, Callable],
+    m,
+    delimiter = '→'
+):
+    orig_text = m.group(0)
+
+    function_name = m.group(1)
+
+    # unable to find function in registry
+
+    if function_name not in registry:
+        return orig_text
+
+    fn = registry[function_name]
+
+    params = m.group(2).split(',')
+    params = list(map(lambda s: s.strip(), params))
+    params = list(map(parse_param, params))
+
+    # if any of the parameters are not parseable, return
+
+    if any([(not exists(p)) for p in params]):
+        return orig_text
+
+    # just return original text if there is some error with the function
+
+    try:
+        out = fn(*params)
+    except:
+        return orig_text
+
+    # return original text with the output delimiter and the stringified output
+
+    return f'{orig_text[:-1]} {delimiter} {str(out)}]'
+
+# main function, which takes a registry of functions, the text in question, and makes all the appropriate api calls and append the output
+
+def invoke_tools(
+    registry: dict[str, Callable],
+    text: str,
+    delimiter: str = '→'
+) -> str:
+    find_functions_regex = r'\[(\w+)\(([^)]*)\)\]'
+    replace_ = partial(replace_fn, registry, delimiter = delimiter)
+    return re.sub(find_functions_regex, replace_, text)
 
 # sampling api related functions
 # they do greedy sampling, but encourage sampling api calls by auto-selecting <api> when that token is in the top k = 10
