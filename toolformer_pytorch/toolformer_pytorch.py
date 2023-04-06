@@ -133,6 +133,18 @@ def invoke_tools(
     replace_ = partial(replace_fn, registry, delimiter = delimiter)
     return re.sub(find_functions_regex, replace_, text)
 
+def invoke_tools_on_batch_sequences(
+    registry: dict[str, Callable],
+    token_ids: torch.Tensor,
+    *,
+    encode: Callable,
+    decode: Callable,
+    delimiter: str = '→'
+) -> torch.Tensor:
+    all_texts = [decode(one_seq_token_ids) for one_seq_token_ids in token_ids]
+    all_texts_with_api_calls = [invoke_tools(registry, text, delimiter) for text in all_texts]
+    return encode(all_texts_with_api_calls)
+
 # sampling api related functions
 # they do greedy sampling, but encourage sampling api calls by auto-selecting <api> when that token is in the top k = 10
 
