@@ -20,7 +20,7 @@ $ pip install toolformer-pytorch
 
 ## Usage
 
-The main novelty of the paper is a way to filter out what is sampled from a bootstrapped transformer, a manual natural selection of what is sampled for further finetining.
+The main novelty of the paper is defining a fitness score for the outputs from a transformer instructed to insert API calls. The score is used to filter the sampled outputs for finetuning the transformer to make API calls that decreases perplexity of the text that follows it.
 
 ```python
 import torch
