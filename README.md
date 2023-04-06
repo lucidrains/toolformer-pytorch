@@ -99,6 +99,7 @@ invoke_tools(function_registry, text)
 - [x] create custom generate function for palm that can do external API calls
     - [x] allow for generating tokens at different cursor indices
     - [ ] allow for customizing how to fine handling errors in function name, parameters, or execution and output
+    - [ ] api token (which was left and right brackets in paper) needs to be customizable
 - [ ] Toolformer should eventually calculate all statistics (how many properly sampled, filtered out by different criterias, the distribution of scores as well as how many were rejected) before the final fine-tuning
 - [ ] do end-to-end training in `Toolformer`
 - [ ] hook up gpt-j
