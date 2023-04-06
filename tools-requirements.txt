@@ -1,0 +1,4 @@
+google-api-python-client
+requests
+transformers
+wolframalpha
