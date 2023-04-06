@@ -1,17 +1,22 @@
 import os
 
-from dotenv import load_dotenv
-load_dotenv()
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
 
-import requests
-import calendar
-import wolframalpha
-import datetime
-from transformers import AutoModelForSeq2SeqLM, AutoTokenizer
-from operator import pow, truediv, mul, add, sub  
+    import requests
+    import calendar
+    import wolframalpha
+    import datetime
+    from transformers import AutoModelForSeq2SeqLM, AutoTokenizer
+    from operator import pow, truediv, mul, add, sub
 
-# Optional imports
-from googleapiclient.discovery import build
+    # Optional imports
+    from googleapiclient.discovery import build
+
+except ImportError:
+    print('please run `pip install tools-requirements.txt` first at project directory')
+    exit()
 
 '''
 Calendar

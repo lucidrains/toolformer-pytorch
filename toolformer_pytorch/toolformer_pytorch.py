@@ -1,4 +1,4 @@
-from functools import partial
+from functools import partial, wraps
 from collections import namedtuple
 
 import torch
@@ -55,6 +55,10 @@ def find_indices_of(t: torch.Tensor, token_id: int, occurrence = 1):
     has_occurred = F.pad(has_occurred, (1, 0), value = 0.)
 
     return (has_occurred < occurrence).sum(dim = -1).long()
+
+# invoking api call functions
+
+
 
 # sampling api related functions
 # they do greedy sampling, but encourage sampling api calls by auto-selecting <api> when that token is in the top k = 10
