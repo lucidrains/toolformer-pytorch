@@ -1,3 +1,5 @@
+import os
+
 import requests
 import calendar
 import wolframalpha
@@ -53,12 +55,14 @@ def colbertv2_get_request(url: str, query: str, k: int):
     topk = res.json()['topk'][:k]
     return topk
 
-def WikiSearch(input_query: str):
-    k = 10
-    retrieval_model = ColBERTv2('http://ec2-44-228-128-229.us-west-2.compute.amazonaws.com:8893/api/search')
+def WikiSearch(
+    input_query: str,
+    url: str = 'http://ec2-44-228-128-229.us-west-2.compute.amazonaws.com:8893/api/search',
+    k: int = 10
+):
+    retrieval_model = ColBERTv2(url)
     output = retrieval_model(input_query, k)
     return output
-
 
 '''
 Machine Translation - NLLB-600M
@@ -69,8 +73,7 @@ input_query - A string, the input query (e.g. "what is a dog?")
 
 output - A string, the translated input query.
 '''
-def MT(input_query: str):
-    model_name = "facebook/nllb-200-distilled-600M"
+def MT(input_query: str, model_name: str = "facebook/nllb-200-distilled-600M"):
     tokenizer = AutoTokenizer.from_pretrained(model_name)
     model = AutoModelForSeq2SeqLM.from_pretrained(model_name)
     input_ids = tokenizer(input_query, return_tensors='pt')
@@ -125,7 +128,7 @@ output - A string, the answer to the input query
 wolfarm_alpha_appid - your Wolfram Alpha API key
 '''
 def WolframAlphaCalculator(input_query: str):
-    wolfram_alpha_appid = 'YOUR_WOLFRAM_ALPHA_APPID'
+    wolfram_alpha_appid = os.environ.get('WOLFRAM_ALPHA_APPID')
     wolfram_client = wolframalpha.Client(wolfram_alpha_appid)
     res = wolfram_client.query(input_query)
     assumption = next(res.pods).text
@@ -150,10 +153,10 @@ def custom_search(query, api_key, cse_id, **kwargs):
     res = service.cse().list(q=query, cx=cse_id, **kwargs).execute()
     return res['items']
 
-def google_search(input_query: str):
-    api_key = "YOUR_GOOGLE_API_KEY"
-    cse_id = 'YOUR_GOOGLE_CSE_ID' 
-    num_results = 10
+def google_search(input_query: str, num_results: int = 10):
+    api_key = os.environ.get('GOOGLE_API_KEY')
+    cse_id = os.environ.get('GOOGLE_CSE_ID')
+
     metadata_results = []
     results = custom_search(input_query, num=num_results, api_key=api_key, cse_id=cse_id)
     for result in results:
@@ -177,7 +180,12 @@ num_results: The number of results to return.
 
 output: A list of dictionaries, each dictionary is a Bing Search result
 '''
-def _bing_search_results(search_term: str, bing_subscription_key: str, count: int):
+def _bing_search_results(
+    search_term: str,
+    bing_subscription_key: str,
+    count: int,
+    url: str = "https://api.bing.microsoft.com/v7.0/search"
+):
     headers = {"Ocp-Apim-Subscription-Key": bing_subscription_key}
     params = {
         "q": search_term,
@@ -186,15 +194,17 @@ def _bing_search_results(search_term: str, bing_subscription_key: str, count: in
         "textFormat": "HTML",
     }
     response = requests.get(
-        "https://api.bing.microsoft.com/v7.0/search", headers=headers, params=params
+        url, headers=headers, params=params
     )
     response.raise_for_status()
     search_results = response.json()
     return search_results["webPages"]["value"]
 
-def bing_search(input_query: str):
-    bing_subscription_key = "YOUR BING API KEY" 
-    num_results = 10
+def bing_search(
+    input_query: str,
+    num_results: int = 10
+):
+    bing_subscription_key = os.environ.get("BING_API_KEY")
     metadata_results = []
     results = _bing_search_results(input_query, bing_subscription_key, count=num_results)
     for result in results:
@@ -216,7 +226,6 @@ if __name__ == '__main__':
     print(WikiSearch('What is a dog?')) # Outputs a list of strings, each string is a Wikipedia document
 
     print(MT("Un chien c'est quoi?")) # What is a dog?
-
 
     # Optional Tools
 
