@@ -124,14 +124,28 @@ def replace_fn(
 
 # main function, which takes a registry of functions, the text in question, and makes all the appropriate api calls and append the output
 
+FUNCTIONS_REGEX = r'\s\[(\w+)\(([^)]*)\)\]'
+
+def replace_all_but_first(text: str) -> str:
+    count = 0
+
+    def replace_(matches):
+        orig_text = matches.group(0)
+        nonlocal count
+        count += 1
+        if count > 1:
+            return ''
+        return orig_text
+
+    return re.sub(FUNCTIONS_REGEX, replace_, text)
+
 def invoke_tools(
     registry: dict[str, Callable],
     text: str,
     delimiter: str = '→'
 ) -> str:
-    find_functions_regex = r'\[(\w+)\(([^)]*)\)\]'
     replace_ = partial(replace_fn, registry, delimiter = delimiter)
-    return re.sub(find_functions_regex, replace_, text)
+    return re.sub(FUNCTIONS_REGEX, replace_, text)
 
 def invoke_tools_on_batch_sequences(
     registry: dict[str, Callable],

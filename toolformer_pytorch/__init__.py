@@ -5,5 +5,6 @@ from toolformer_pytorch.toolformer_pytorch import (
     filter_tokens_with_api_response,
     sample,
     sample_with_api_call,
-    invoke_tools
+    invoke_tools,
+    replace_all_but_first
 )
