@@ -12,7 +12,6 @@ from operator import pow, truediv, mul, add, sub
 
 # Optional imports
 from googleapiclient.discovery import build
-    
 
 '''
 Calendar

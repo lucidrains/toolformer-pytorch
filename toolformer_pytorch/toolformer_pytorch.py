@@ -355,12 +355,14 @@ class Toolformer(nn.Module):
         self,
         model: nn.Module,
         tool: Callable,
-        teach_tool_prompt: str
+        teach_tool_prompt: str,
+        filters: dict[str, Callable[[str], bool]] = dict()
     ):
         super().__init__()
         self.model = model
         self.tool = tool
         self.teach_tool_prompt = teach_tool_prompt
+        self.filters = filters
 
     def forward(self):
         raise NotImplementedError
