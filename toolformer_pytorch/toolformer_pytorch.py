@@ -82,12 +82,12 @@ def parse_param(s: str) -> Optional[Union[int, float, str]]:
 @beartype
 def replace_fn(
     registry: dict[str, Callable],
-    m,
+    matches,
     delimiter = '→'
 ):
-    orig_text = m.group(0)
+    orig_text = matches.group(0)
 
-    function_name = m.group(1)
+    function_name = matches.group(1)
 
     # unable to find function in registry
 
@@ -96,8 +96,9 @@ def replace_fn(
 
     fn = registry[function_name]
 
-    params = m.group(2).split(',')
+    params = matches.group(2).split(',')
     params = list(map(lambda s: s.strip(), params))
+    params = list(filter(len, params))
     params = list(map(parse_param, params))
 
     # if any of the parameters are not parseable, return
@@ -110,6 +111,11 @@ def replace_fn(
     try:
         out = fn(*params)
     except:
+        return orig_text
+
+    # the api calling function can also arrest the process, by returning None
+
+    if not exists(out):
         return orig_text
 
     # return original text with the output delimiter and the stringified output
