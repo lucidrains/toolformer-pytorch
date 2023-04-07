@@ -129,26 +129,27 @@ def replace_fn(
 # main function, which takes a registry of functions, the text in question, and makes all the appropriate api calls and append the output
 
 def create_function_regex(
-    api_start_regex = r'\s\[',
-    api_stop_regex = r'\]'
+    api_start = ' [',
+    api_stop = ']'
 ):
+    api_start_regex, api_stop_regex = map(re.escape, (api_start, api_stop))
     return rf'({api_start_regex}(\w+)\(([^)]*)\))({api_stop_regex})'
 
 def has_api_calls(
     text,
-    api_start_regex = r'\s\[',
-    api_stop_regex = r'\]'
+    api_start = ' [',
+    api_stop = ']'
 ):
-    regex = create_function_regex(api_start_regex, api_stop_regex)
+    regex = create_function_regex(api_start, api_stop)
     matches = re.findall(regex, text)
     return len(matches) > 0
 
 def replace_all_but_first(
     text: str,
-    api_start_regex = r'\s\[',
-    api_stop_regex = r'\]'
+    api_start = ' [',
+    api_stop = ']'
 ) -> str:
-    regex = create_function_regex(api_start_regex, api_stop_regex)
+    regex = create_function_regex(api_start, api_stop)
 
     count = 0
 
@@ -166,10 +167,10 @@ def invoke_tools(
     registry: dict[str, Callable],
     text: str,
     delimiter: str = '→',
-    api_start_regex = r'\s\[',
-    api_stop_regex = r'\]'
+    api_start = ' [',
+    api_stop = ' ]'
 ) -> str:
-    regex = create_function_regex(api_start_regex, api_stop_regex)
+    regex = create_function_regex(api_start, api_stop)
     replace_ = partial(replace_fn, registry, delimiter = delimiter)
     return re.sub(regex, replace_, text)
 
@@ -180,13 +181,13 @@ def invoke_tools_on_batch_sequences(
     encode: Callable,
     decode: Callable,
     delimiter: str = '→',
-    api_start_regex = r'\s\[',
-    api_stop_regex = r'\]'
+    api_start = ' [',
+    api_stop = ']'
 ) -> torch.Tensor:
     regex = create_function_regex(api_start_regex, api_stop_regex)
     all_texts = [decode(one_seq_token_ids) for one_seq_token_ids in token_ids]
 
-    invoke_tools_ = partial(invoke_tools, api_start_regex = api_start_regex, api_stop_regex = api_stop_regex)
+    invoke_tools_ = partial(invoke_tools, api_start = api_start, api_stop = api_stop)
     all_texts_with_api_calls = [invoke_tools_(registry, text, delimiter) for text in all_texts]
 
     return encode(all_texts_with_api_calls)
