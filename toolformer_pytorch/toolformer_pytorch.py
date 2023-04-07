@@ -87,7 +87,9 @@ def replace_fn(
 ):
     orig_text = matches.group(0)
 
-    function_name = matches.group(1)
+    text_without_end_api_token = matches.group(1)
+    end_api_token = matches.group(4)
+    function_name = matches.group(2)
 
     # unable to find function in registry
 
@@ -96,7 +98,7 @@ def replace_fn(
 
     fn = registry[function_name]
 
-    params = matches.group(2).split(',')
+    params = matches.group(3).split(',')
     params = list(map(lambda s: s.strip(), params))
     params = list(filter(len, params))
     params = list(map(parse_param, params))
@@ -120,13 +122,32 @@ def replace_fn(
 
     # return original text with the output delimiter and the stringified output
 
-    return f'{orig_text[:-1]} {delimiter} {str(out)}]'
+    return f'{text_without_end_api_token} {delimiter} {str(out)}{end_api_token}'
 
 # main function, which takes a registry of functions, the text in question, and makes all the appropriate api calls and append the output
 
-FUNCTIONS_REGEX = r'\s\[(\w+)\(([^)]*)\)\]'
+def create_function_regex(
+    api_start_regex = r'\s\[',
+    api_stop_regex = r'\]'
+):
+    return rf'({api_start_regex}(\w+)\(([^)]*)\))({api_stop_regex})'
 
-def replace_all_but_first(text: str) -> str:
+def has_api_calls(
+    text,
+    api_start_regex = r'\s\[',
+    api_stop_regex = r'\]'
+):
+    regex = create_function_regex(api_start_regex, api_stop_regex)
+    matches = re.findall(regex, text)
+    return len(matches) > 0
+
+def replace_all_but_first(
+    text: str,
+    api_start_regex = r'\s\[',
+    api_stop_regex = r'\]'
+) -> str:
+    regex = create_function_regex(api_start_regex, api_stop_regex)
+
     count = 0
 
     def replace_(matches):
@@ -137,15 +158,18 @@ def replace_all_but_first(text: str) -> str:
             return ''
         return orig_text
 
-    return re.sub(FUNCTIONS_REGEX, replace_, text)
+    return re.sub(regex, replace_, text)
 
 def invoke_tools(
     registry: dict[str, Callable],
     text: str,
-    delimiter: str = '→'
+    delimiter: str = '→',
+    api_start_regex = r'\s\[',
+    api_stop_regex = r'\]'
 ) -> str:
+    regex = create_function_regex(api_start_regex, api_stop_regex)
     replace_ = partial(replace_fn, registry, delimiter = delimiter)
-    return re.sub(FUNCTIONS_REGEX, replace_, text)
+    return re.sub(regex, replace_, text)
 
 def invoke_tools_on_batch_sequences(
     registry: dict[str, Callable],
@@ -153,10 +177,16 @@ def invoke_tools_on_batch_sequences(
     *,
     encode: Callable,
     decode: Callable,
-    delimiter: str = '→'
+    delimiter: str = '→',
+    api_start_regex = r'\s\[',
+    api_stop_regex = r'\]'
 ) -> torch.Tensor:
+    regex = create_function_regex(api_start_regex, api_stop_regex)
     all_texts = [decode(one_seq_token_ids) for one_seq_token_ids in token_ids]
-    all_texts_with_api_calls = [invoke_tools(registry, text, delimiter) for text in all_texts]
+
+    invoke_tools_ = partial(invoke_tools, api_start_regex = api_start_regex, api_stop_regex = api_stop_regex)
+    all_texts_with_api_calls = [invoke_tools_(registry, text, delimiter) for text in all_texts]
+
     return encode(all_texts_with_api_calls)
 
 # sampling api related functions
