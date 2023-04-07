@@ -8,7 +8,9 @@ import torch.nn.functional as F
 from torch import nn, einsum
 
 from einops import rearrange, reduce
+
 from toolformer_pytorch.palm import PaLM
+from toolformer_pytorch.optimizer import get_optimizer
 
 from beartype import beartype
 from beartype.typing import Callable, Optional, Union
