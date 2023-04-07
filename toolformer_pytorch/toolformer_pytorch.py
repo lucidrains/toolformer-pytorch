@@ -6,6 +6,7 @@ from collections import namedtuple
 import torch
 import torch.nn.functional as F
 from torch import nn, einsum
+from torch.utils.data import Dataset, DataLoader
 
 from einops import rearrange, reduce
 
@@ -25,6 +26,23 @@ def exists(val):
 
 def default(val, d):
     return val if exists(val) else d
+
+def identity(t):
+    return t
+
+def always(val):
+    def inner(*args, **kwargs):
+        return val
+    return inner
+
+def try_except(fn, callback = identity):
+    @wraps(fn)
+    def inner(*args):
+        try:
+            return fn(*args)
+        except Exception as e:
+            return callback(e)
+    return inner
 
 # tensor helpers
 
@@ -113,10 +131,7 @@ def replace_fn(
 
     # just return original text if there is some error with the function
 
-    try:
-        out = fn(*params)
-    except:
-        return orig_text
+    out = try_except(fn, always(None))(*params)
 
     # the api calling function can also arrest the process, by returning None
 
