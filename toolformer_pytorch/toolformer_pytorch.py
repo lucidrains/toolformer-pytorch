@@ -669,8 +669,15 @@ class Toolformer(nn.Module):
         data_with_api_calls: List[str],
         return_excluded = False
     ):
-        included = []
-        excluded = []
+        included_data = []
+        included_data_with_api_calls = []
+
+        included = (included_data, included_data_with_api_calls)
+
+        excluded_data = []
+        excluded_data_with_api_calls = []
+
+        excluded = (excluded_data, excluded_data_with_api_calls)
 
         api_start_stop_kwargs = dict(api_start = self.api_start_str, api_stop = self.api_stop_str)
 
@@ -680,16 +687,16 @@ class Toolformer(nn.Module):
         for datum, data_with_api_call in zip(data, data_with_api_calls):
             if has_api_calls_(data_with_api_call):
                 data_with_api_call = replace_all_but_first_(data_with_api_call)
-                included.append((datum, data_with_api_call))
-            else:
-                excluded.append((datum, data_with_api_call))
 
-        included = tuple(map(list, zip(*included)))
+                included_data.append(datum)
+                included_data_with_api_calls.append(data_with_api_call)
+            else:
+                excluded_data.append(datum)
+                excluded_data_with_api_calls.append(data_with_api_call)
 
         if not return_excluded:
             return included
 
-        excluded = tuple(map(list, zip(*excluded)))
         return included, excluded
 
     def make_api_calls(
@@ -738,10 +745,12 @@ class Toolformer(nn.Module):
         data: List[str]
     ):
         data_with_api_calls = self.generate_data_with_api_calls(data)
-        filtered_data_with_api_calls = self.filter_and_keep_only_first_api_call(data_with_api_calls)
+
+        filtered_data, filtered_data_with_api_calls = self.filter_and_keep_only_first_api_call(data, data_with_api_calls)
 
         assert len(filtered_data_with_api_calls) > 0, 'your model failed to follow instructions and make API calls. please try a better model or do some better prompt engineering'
 
         data_with_responses = self.make_api_calls(filtered_data_with_api_calls)
+        filtered_results = self.filter_by_api_responses(filtered_data, filtered_data_with_api_calls, data_with_responses)
 
-        return data_with_responses
+        return filtered_results

@@ -74,21 +74,17 @@ toolformer = Toolformer(
     tool = Calendar
 )
 
-data_with_api_calls = toolformer.generate_data_with_api_calls(data)
+# invoking this will
+# (1) prompt the model with your inputs (data), inserted into [input] tag
+# (2) with the sampled outputs, filter out the ones that made proper API calls
+# (3) execute the API calls with the `tool` given
+# (4) filter with the specialized filter function (which can be used independently as shown in the next section)
 
-filtered_data, filtered_data_with_api_calls = toolformer.filter_and_keep_only_first_api_call(data, data_with_api_calls)
-
-data_with_api_responses = toolformer.make_api_calls(filtered_data_with_api_calls)
-
-filtered_results = toolformer.filter_by_api_responses(
-    filtered_data,
-    filtered_data_with_api_calls,
-    data_with_api_responses
-)
+filtered_results = toolformer(data)
 
 # then finetune with token ids at
 # -> filtered_results.filtered_tokens_without_api_response
-# complete this with toolformer.finetune(filtered_results)
+# (5) complete this with toolformer.finetune(filtered_results) - and return all statistics
 
 ```
 
