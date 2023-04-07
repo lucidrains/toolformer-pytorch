@@ -1,4 +1,6 @@
-calculator_prompt = """
+DEFAULT_PROMPT_INPUT_TAG = '[input]'
+
+calculator_prompt = f"""
 Your task is to add calls to a Calculator API to a piece of text.
 The calls should help you get information required to complete the text. 
 You can call the API by writing "[Calculator(expression)]" where "expression" is the expression to be computed. 
@@ -13,11 +15,11 @@ Input: I went to Paris in 1994 and stayed there until 2011, so in total, it was 
 Output: I went to Paris in 1994 and stayed there until 2011, so in total, it was [Calculator(2011 - 1994)] 17 years.
 Input: From this, we have 4 * 30 minutes = 120 minutes.
 Output: From this, we have 4 * 30 minutes = [Calculator(4 * 30)] 120 minutes.
-Input: [input]
+Input: {DEFAULT_PROMPT_INPUT_TAG}
 Output:
 """
 
-wikipedia_search_prompt = """
+wikipedia_search_prompt = f"""
 Your task is to complete a given piece of text. 
 You can use a Wikipedia Search API to look up information. 
 You can do so by writing "[WikiSearch(term)]" where "term" is the search term you want to look up. 
@@ -28,11 +30,11 @@ Input: But what are the risks during production of nanomaterials? Some nanomater
 Output: But what are the risks during production of nanomaterials? [WikiSearch("nanomaterial production risks")] Some nanomaterials may give rise to various kinds of lung damage.
 Input: Metformin is the first-line drug for patients with type 2 diabetes and obesity.
 Output: Metformin is the first-line drug for [WikiSearch("Metformin first-line drug")] patients with type 2 diabetes and obesity.
-Input: [input]
+Input: {DEFAULT_PROMPT_INPUT_TAG}
 Output:
 """
 
-machine_translation_prompt = """
+machine_translation_prompt = f"""
 Your task is to complete a given piece of text by using a Machine Translation API.
 You can do so by writing "[MT(text)]" where text is the text to be translated into English.
 Here are some examples:
@@ -42,11 +44,11 @@ Input: In Morris de Jonge’s Jeschuah, der klassische jüdische Mann, there is 
 Output: In Morris de Jonge’s Jeschuah, der klassische jüdische Mann [MT(der klassische jüdische Mann)], there is a description of a Jewish writer
 Input: 南 京 高 淳 县 住 房 和 城 乡 建 设 局 城 市 新 区 设 计 a plane of reference Gaochun is one of seven districts of the provincial capital Nanjing
 Output: [MT(南京高淳县住房和城乡建设局 城市新 区 设 计)] a plane of reference Gaochun is one of seven districts of the provincial capital Nanjing
-Input: [input]
+Input: {DEFAULT_PROMPT_INPUT_TAG}
 Output:
 """
 
-calendar_prompt = """
+calendar_prompt = f"""
 Your task is to add calls to a Calendar API to a piece of text. 
 The API calls should help you get information required to complete the text. 
 You can call the API by writing "[Calendar()]" 
@@ -61,6 +63,6 @@ Input: The number of days from now until Christmas is 30.
 Output: The number of days from now until Christmas is [Calendar()] 30.
 Input: The store is never open on the weekend, so today it is closed.
 Output: The store is never open on the weekend, so today [Calendar()] it is closed.
-Input: [input]
+Input: {DEFAULT_PROMPT_INPUT_TAG}
 Output:
 """

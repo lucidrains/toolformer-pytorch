@@ -11,6 +11,7 @@ from einops import rearrange, reduce
 
 from toolformer_pytorch.palm import PaLM
 from toolformer_pytorch.optimizer import get_optimizer
+from toolformer_pytorch.prompts import DEFAULT_PROMPT_INPUT_TAG
 
 from beartype import beartype
 from beartype.typing import Callable, Optional, Union, List
@@ -506,7 +507,7 @@ class Toolformer(nn.Module):
         tool_id: str,
         tool: Callable,
         teach_tool_prompt: str,
-        prompt_input_tag: str = '[input]',
+        prompt_input_tag: str = DEFAULT_PROMPT_INPUT_TAG,
         exclude_filters: dict[str, Callable[[str], bool]] = dict()
     ):
         super().__init__()
