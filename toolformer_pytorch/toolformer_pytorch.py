@@ -713,7 +713,7 @@ class Toolformer(nn.Module):
                 prompted_output = self.tokenizer_decode(sample_output[start_position:])
                 prompted_outputs.append(prompted_output)
 
-        return prompted_outputs
+        return self.post_prompt_callback(prompted_outputs)
 
     def filter_and_keep_only_first_api_call(
         self,
@@ -863,18 +863,28 @@ class Toolformer(nn.Module):
 
     def forward(
         self,
-        data: List[str]
+        data: List[str],
+        return_after_generating_api_calls = False,
+        return_after_filtering_api_calls = False,
+        return_after_filtering_by_api_response = False
     ):
         data_with_api_calls = self.generate_data_with_api_calls(data)
 
-        data_with_api_calls = self.post_prompt_callback(data_with_api_calls)
+        if return_after_generating_api_calls:
+            return data_with_api_calls
 
         filtered_data, filtered_data_with_api_calls = self.filter_and_keep_only_first_api_call(data, data_with_api_calls)
+
+        if return_after_filtering_api_calls:
+            return filtered_data, filtered_data_with_api_calls
 
         assert len(filtered_data_with_api_calls) > 0, 'your model failed to follow instructions and make API calls. please try a better model or do some better prompt engineering'
 
         data_with_responses = self.make_api_calls(filtered_data_with_api_calls)
         filtered_results = self.filter_by_api_responses(filtered_data, filtered_data_with_api_calls, data_with_responses)
+
+        if return_after_filtering_by_api_response:
+            return filtered_results
 
         if self.should_finetune:
             self.finetune(filtered_results)
