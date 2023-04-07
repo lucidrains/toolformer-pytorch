@@ -2,6 +2,8 @@ import torch
 from torch import nn, einsum
 from einops import rearrange
 
+from x_clip.tokenizer import tokenizer
+
 # helpers
 
 def exists(val):
@@ -162,7 +164,7 @@ class Transformer(nn.Module):
         depth, 
         heads, 
         dim_head, 
-        ff_mult=4,
+        ff_mult = 4,
     ):
         super().__init__()
         self.layers = nn.ModuleList([])
@@ -184,8 +186,8 @@ class PaLM(nn.Module):
     def __init__(
         self, 
         dim, 
-        num_tokens, 
         depth, 
+        num_tokens=tokenizer.vocab_size,
         dim_head=64, 
         heads=8, 
         ff_mult=4,

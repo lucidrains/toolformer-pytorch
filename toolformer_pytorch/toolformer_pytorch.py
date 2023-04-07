@@ -6,6 +6,8 @@ from collections import namedtuple
 import torch
 import torch.nn.functional as F
 from torch import nn, einsum
+from torch.utils.data import Dataset, DataLoader
+from torch.nn.utils.rnn import pad_sequence
 
 from einops import rearrange, reduce
 
@@ -17,6 +19,7 @@ from beartype import beartype
 from beartype.typing import Callable, Optional, Union, List
 
 from tqdm import tqdm
+from x_clip.tokenizer import tokenizer
 
 # helpers
 
@@ -25,6 +28,23 @@ def exists(val):
 
 def default(val, d):
     return val if exists(val) else d
+
+def identity(t):
+    return t
+
+def always(val):
+    def inner(*args, **kwargs):
+        return val
+    return inner
+
+def try_except(fn, callback = identity):
+    @wraps(fn)
+    def inner(*args):
+        try:
+            return fn(*args)
+        except Exception as e:
+            return callback(e)
+    return inner
 
 # tensor helpers
 
@@ -113,10 +133,7 @@ def replace_fn(
 
     # just return original text if there is some error with the function
 
-    try:
-        out = fn(*params)
-    except:
-        return orig_text
+    out = try_except(fn, always(None))(*params)
 
     # the api calling function can also arrest the process, by returning None
 
@@ -218,6 +235,7 @@ def sample(
     select_api_start_id_top_k = 10,
 ):
     device = next(model.parameters()).device
+    positions = positions.clone()
     max_seq_len = seq_len + 1
 
     # validate
@@ -247,7 +265,7 @@ def sample(
     # lengthen the prime to the entire sequence length
 
     remain_iterations = seq_len - prime_length
-    output = F.pad(prime, (max_seq_len - prime_length, 0), value = 0.)
+    output = F.pad(prime, (0, max_seq_len - prime_length), value = 0.)
 
     batch_indices = torch.arange(batch_size, device = device)
     batch_indices = rearrange(batch_indices, 'b -> b 1')
@@ -322,7 +340,6 @@ def sample(
     # remove the last token in output (use as noop placeholder)
 
     output = output[:, :-1]
-
     return output
 
 @beartype
@@ -496,6 +513,42 @@ def filter_tokens_with_api_response(
 
     return ret
 
+# datasets and dataloaders
+
+# for bootstrapping the initial datasets with api calls
+# as well as for the final finetuning
+
+@beartype
+class PromptDataset(Dataset):
+    def __init__(
+        self,
+        prompt: str,
+        prompt_input_tag: str,
+        data: List[str],
+        tokenizer_encode: Callable
+    ):
+        self.data = data
+        self.prompt = prompt
+        self.prompt_input_tag_regex = re.escape(prompt_input_tag)
+
+    def __len__(self):
+        return len(self.data)
+
+    def __getitem__(self, idx):
+        data_string = self.data[idx]
+        data_with_prompt = re.sub(self.prompt_input_tag_regex, data_string, self.prompt)
+        token_ids = tokenizer.encode(data_with_prompt)
+        return torch.tensor(token_ids).long(), torch.tensor(len(token_ids)).long()
+
+def prompt_collate_fn(data, padding_value = 0):
+    prompts, prompt_lengths = zip(*data)
+    prompts = pad_sequence(prompts, batch_first = True, padding_value = padding_value)
+    return prompts, torch.stack(prompt_lengths)
+
+def PromptDataloader(ds: Dataset, *args, padding_value = 0, **kwargs):
+    collate_fn = partial(prompt_collate_fn, padding_value = padding_value)
+    return DataLoader(ds, *args, collate_fn = collate_fn, **kwargs)
+
 # classes
 
 @beartype
@@ -506,12 +559,36 @@ class Toolformer(nn.Module):
         *,
         tool_id: str,
         tool: Callable,
+        api_start_str = ' [',
+        api_stop_str = ']',
+        api_start_id = None,
+        api_stop_id = None,
         teach_tool_prompt: str,
+        pad_id = 0,
+        prompt_batch_size = 4,
+        model_seq_len = 2048,
+        tokenizer_encode: Callable = tokenizer.encode,
+        tokenizer_decode: Callable = tokenizer.decode,
         prompt_input_tag: str = DEFAULT_PROMPT_INPUT_TAG,
         exclude_filters: dict[str, Callable[[str], bool]] = dict()
     ):
         super().__init__()
         self.model = model
+        self.model_seq_len = model_seq_len
+
+        self.teach_tool_prompt = teach_tool_prompt
+        self.prompt_batch_size = prompt_batch_size
+        self.prompt_input_tag = prompt_input_tag
+
+        self.tokenizer_encode = tokenizer_encode
+        self.tokenizer_decode = tokenizer_decode
+
+        self.api_start_str = api_start_str
+        self.api_stop_str = api_stop_str
+
+        self.api_start_id = api_start_id
+        self.api_stop_id = api_stop_id
+        self.pad_id = pad_id
 
         self.tool_id = tool_id
         self.tool = tool
@@ -522,8 +599,48 @@ class Toolformer(nn.Module):
         self.teach_tool_prompt = teach_tool_prompt
         self.exclude_filters = exclude_filters
 
+    def generate_data_with_api_calls(
+        self,
+        data: List[str],
+        temperature: float = 0.9
+    ) -> List[str]:
+
+        dataset = PromptDataset(
+            data = data,
+            prompt_input_tag = self.prompt_input_tag,
+            prompt = self.teach_tool_prompt,
+            tokenizer_encode = self.tokenizer_encode
+        )
+
+        dl = PromptDataloader(
+            dataset,
+            batch_size = self.prompt_batch_size
+        )
+
+        prompted_outputs = []
+
+        for prime, positions in dl:
+
+            sampled_outputs = sample(
+                model = self.model,
+                prime = prime,
+                positions = positions,
+                seq_len = self.model_seq_len,
+                pad_id = self.pad_id,
+                temperature = temperature
+            )
+
+            for sample_output, position in zip(sampled_outputs, positions):
+                start_position = position.item()
+
+                prompted_output = self.tokenizer_decode(sample_output[start_position:])
+                prompted_outputs.append(prompted_output)
+
+        return prompted_outputs
+
     def forward(
         self,
         data: List[str]
     ):
-        raise NotImplementedError
+        data_with_api_calls = self.generate_data_with_api_calls(data)
+        return data_with_api_calls
