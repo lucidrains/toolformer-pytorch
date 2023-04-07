@@ -424,6 +424,8 @@ def weight_and_mask(
     return weights.masked_fill(weights == pad_id, 0.)
 
 FilteredResults = namedtuple('FilteredResults', [
+    'num_passed',
+    'num_failed',
     'selected_indices',
     'selected_mask',
     'filtered_tokens',
@@ -514,6 +516,8 @@ def filter_tokens_with_api_response(
     selected_indices = indices[selected_mask]
 
     ret = FilteredResults(
+        selected_mask.sum().item()
+        (~selected_mask).sum().item(),
         selected_indices,
         selected_mask,
         tokens[selected_mask],
