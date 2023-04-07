@@ -176,6 +176,7 @@ invoke_tools(function_registry, text)
     - [ ] take care of fine-tuning, with the interleaving of datasets + optimizer hyperparams
 - [ ] hook up gpt-j
 - [ ] test for a simple calculator eval dataset
+- [ ] add a default callback within the Toolformer that automatically aligns the text and checks for validity before the filtering step - if the text was not copied correctly, the filtering step is not valid.
 
 ## Citations
 
