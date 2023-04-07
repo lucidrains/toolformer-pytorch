@@ -865,6 +865,7 @@ class Toolformer(nn.Module):
         self,
         data: List[str],
         return_after_generating_api_calls = False,
+        return_after_making_api_calls = False,
         return_after_filtering_api_calls = False,
         return_after_filtering_by_api_response = False
     ):
@@ -881,12 +882,18 @@ class Toolformer(nn.Module):
         assert len(filtered_data_with_api_calls) > 0, 'your model failed to follow instructions and make API calls. please try a better model or do some better prompt engineering'
 
         data_with_responses = self.make_api_calls(filtered_data_with_api_calls)
+
+        if return_after_making_api_calls:
+            return filtered_data, filtered_data_with_api_calls, data_with_responses
+
         filtered_results = self.filter_by_api_responses(filtered_data, filtered_data_with_api_calls, data_with_responses)
 
         if return_after_filtering_by_api_response:
             return filtered_results
 
         if self.should_finetune:
+            assert filtered_results.num_passed > 0, f'none of the sequences with API calls passed the filtering criteria with threshold {self.filter_threshold}'
+
             self.finetune(filtered_results)
 
         return filtered_results
