@@ -177,7 +177,8 @@ invoke_tools(function_registry, text)
     - [x] doing the prompting and bootstrapping the data
     - [x] prefiltering of bootstrapped data followed by api calls and then another round of filtering
         - [ ] keep track of all stats
-    - [ ] take care of fine-tuning, with the interleaving of datasets + optimizer hyperparams
+    - [x] take care of fine-tuning
+        - [ ] interleaving of datasets + optimizer hyperparams
 - [ ] hook up gpt-j
 - [ ] test for a simple calculator eval dataset
 - [ ] add a default callback within the Toolformer that automatically aligns the text and checks for validity before the filtering step - if the text was not copied correctly, the filtering step is not valid.
