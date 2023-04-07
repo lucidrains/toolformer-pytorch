@@ -13,7 +13,7 @@ Input: I went to Paris in 1994 and stayed there until 2011, so in total, it was 
 Output: I went to Paris in 1994 and stayed there until 2011, so in total, it was [Calculator(2011 - 1994)] 17 years.
 Input: From this, we have 4 * 30 minutes = 120 minutes.
 Output: From this, we have 4 * 30 minutes = [Calculator(4 * 30)] 120 minutes.
-Input: x
+Input: [input]
 Output:
 """
 
@@ -28,7 +28,7 @@ Input: But what are the risks during production of nanomaterials? Some nanomater
 Output: But what are the risks during production of nanomaterials? [WikiSearch("nanomaterial production risks")] Some nanomaterials may give rise to various kinds of lung damage.
 Input: Metformin is the first-line drug for patients with type 2 diabetes and obesity.
 Output: Metformin is the first-line drug for [WikiSearch("Metformin first-line drug")] patients with type 2 diabetes and obesity.
-Input: x
+Input: [input]
 Output:
 """
 
@@ -42,7 +42,7 @@ Input: In Morris de Jonge’s Jeschuah, der klassische jüdische Mann, there is 
 Output: In Morris de Jonge’s Jeschuah, der klassische jüdische Mann [MT(der klassische jüdische Mann)], there is a description of a Jewish writer
 Input: 南 京 高 淳 县 住 房 和 城 乡 建 设 局 城 市 新 区 设 计 a plane of reference Gaochun is one of seven districts of the provincial capital Nanjing
 Output: [MT(南京高淳县住房和城乡建设局 城市新 区 设 计)] a plane of reference Gaochun is one of seven districts of the provincial capital Nanjing
-Input: x
+Input: [input]
 Output:
 """
 
@@ -61,6 +61,6 @@ Input: The number of days from now until Christmas is 30.
 Output: The number of days from now until Christmas is [Calendar()] 30.
 Input: The store is never open on the weekend, so today it is closed.
 Output: The store is never open on the weekend, so today [Calendar()] it is closed.
-Input: x
+Input: [input]
 Output:
 """
