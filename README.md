@@ -71,7 +71,8 @@ toolformer = Toolformer(
     model_seq_len = 256,
     teach_tool_prompt = prompt,
     tool_id = 'Calendar',
-    tool = Calendar
+    tool = Calendar,
+    finetune = True
 )
 
 # invoking this will
@@ -79,12 +80,15 @@ toolformer = Toolformer(
 # (2) with the sampled outputs, filter out the ones that made proper API calls
 # (3) execute the API calls with the `tool` given
 # (4) filter with the specialized filter function (which can be used independently as shown in the next section)
+# (5) fine-tune on the filtered results
 
-filtered_results = toolformer(data)
+toolformer(data)
 
-# then finetune with token ids at
-# -> filtered_results.filtered_tokens_without_api_response
-# (5) complete this with toolformer.finetune(filtered_results) - and return all statistics
+# then, once you see the 'finetune complete' message
+
+response = toolformer.sample_model_with_api_calls("How many days until the next new years?")
+
+# hopefully you see it invoke the calendar and utilize the response of the api call...
 
 ```
 
