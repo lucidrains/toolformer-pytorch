@@ -124,3 +124,5 @@ invoke_tools(function_registry, text)
     volume  = {abs/2211.10435}
 }
 ```
+
+*Reality is that which, when you stop believing it, doesn't go away.* – Philip K. Dick.
