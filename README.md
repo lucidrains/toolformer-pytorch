@@ -76,7 +76,20 @@ toolformer = Toolformer(
 
 data_with_api_calls = toolformer.generate_data_with_api_calls(data)
 
-# complete the filtering and fine tuning step
+filtered_data, filtered_data_with_api_calls = toolformer.filter_and_keep_only_first_api_call(data, data_with_api_calls)
+
+data_with_api_responses = toolformer.make_api_calls(filtered_data_with_api_calls)
+
+filtered_results = toolformer.filter_by_api_responses(
+    filtered_data,
+    filtered_data_with_api_calls,
+    data_with_api_responses
+)
+
+# then finetune with token ids at
+# -> filtered_results.filtered_tokens_without_api_response
+# complete this with toolformer.finetune(filtered_results)
+
 ```
 
 The main novelty of the paper is defining a fitness score for the outputs from a transformer instructed to insert API calls. The score is used to filter the sampled outputs for finetuning the transformer to make API calls that decreases perplexity of the text that follows it.
@@ -162,7 +175,7 @@ invoke_tools(function_registry, text)
 - [ ] Toolformer should eventually calculate all statistics (how many properly sampled, filtered out by different criterias, the distribution of scores as well as how many were rejected) before the final fine-tuning
 - [ ] do end-to-end training in `Toolformer`
     - [x] doing the prompting and bootstrapping the data
-    - [ ] prefiltering of bootstrapped data followed by api calls and then another round of filtering
+    - [x] prefiltering of bootstrapped data followed by api calls and then another round of filtering
         - [ ] keep track of all stats
     - [ ] take care of fine-tuning, with the interleaving of datasets + optimizer hyperparams
 - [ ] hook up gpt-j
