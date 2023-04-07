@@ -876,7 +876,7 @@ class Toolformer(nn.Module):
         data_with_responses = self.make_api_calls(filtered_data_with_api_calls)
         filtered_results = self.filter_by_api_responses(filtered_data, filtered_data_with_api_calls, data_with_responses)
 
-        if not self.should_finetune:
-            return filtered_results
+        if self.should_finetune:
+            self.finetune(filtered_results)
 
-        self.finetune(filtered_results)
+        return filtered_results
