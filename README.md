@@ -82,7 +82,7 @@ toolformer = Toolformer(
 # (4) filter with the specialized filter function (which can be used independently as shown in the next section)
 # (5) fine-tune on the filtered results
 
-toolformer(data)
+filtered_stats = toolformer(data)
 
 # then, once you see the 'finetune complete' message
 
