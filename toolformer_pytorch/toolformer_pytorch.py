@@ -4,8 +4,9 @@ from functools import partial, wraps
 from collections import namedtuple
 
 import torch
+from torch import nn
 import torch.nn.functional as F
-from torch import nn, einsum
+
 from torch.utils.data import Dataset, DataLoader
 from torch.nn.utils.rnn import pad_sequence
 
@@ -20,6 +21,8 @@ from beartype.typing import Callable, Optional, Union, List, Tuple
 
 from tqdm import tqdm
 from x_clip.tokenizer import tokenizer
+
+pad_sequence = partial(pad_sequence, batch_first = True)
 
 # helpers
 
@@ -549,7 +552,7 @@ class PromptDataset(Dataset):
 
 def prompt_collate_fn(data, padding_value = 0):
     prompts, prompt_lengths = zip(*data)
-    prompts = pad_sequence(prompts, batch_first = True, padding_value = padding_value)
+    prompts = pad_sequence(prompts, padding_value = padding_value)
     return prompts, torch.stack(prompt_lengths)
 
 def PromptDataloader(ds: Dataset, *args, padding_value = 0, **kwargs):
@@ -699,6 +702,23 @@ class Toolformer(nn.Module):
 
         return included, excluded
 
+    def sample_model_with_api_calls(
+        self,
+        prime: torch.Tensor,
+        occurrence = 1,
+        **kwargs
+    ):
+        output = sample_with_api_call(
+            model = self.model,
+            seq_len = self.model_seq_len,
+            call_apis = partial(invoke_tools, self.registry),
+            api_end_token_id = self.api_stop_id,
+            occurrence = occurrence,
+            **kwargs
+        )
+
+        return output
+
     def make_api_calls(
         self,
         filtered_data_with_api_calls: List[str]
@@ -724,7 +744,7 @@ class Toolformer(nn.Module):
         data_with_api_responses: List[str]
     ) -> FilteredResults:
 
-        to_token_ids = lambda l: pad_sequence([*map(self.tokenizer_encode_to_tensor, l)], batch_first = True, padding_value = self.pad_id)
+        to_token_ids = lambda l: pad_sequence([*map(self.tokenizer_encode_to_tensor, l)], padding_value = self.pad_id)
 
         tokens, tokens_without_api_response, tokens_with_api_response = map(to_token_ids, (data, data_with_api_calls, data_with_api_responses))
 
