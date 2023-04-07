@@ -13,7 +13,7 @@ from toolformer_pytorch.palm import PaLM
 from toolformer_pytorch.optimizer import get_optimizer
 
 from beartype import beartype
-from beartype.typing import Callable, Optional, Union
+from beartype.typing import Callable, Optional, Union, List
 
 from tqdm import tqdm
 
@@ -134,6 +134,9 @@ def create_function_regex(
 ):
     api_start_regex, api_stop_regex = map(re.escape, (api_start, api_stop))
     return rf'({api_start_regex}(\w+)\(([^)]*)\))({api_stop_regex})'
+
+def num_matches(substr: str, text: str):
+    return len(re.findall(re.escape(substr), text))
 
 def has_api_calls(
     text,
@@ -503,14 +506,23 @@ class Toolformer(nn.Module):
         tool_id: str,
         tool: Callable,
         teach_tool_prompt: str,
+        prompt_input_tag: str = '[input]',
         exclude_filters: dict[str, Callable[[str], bool]] = dict()
     ):
         super().__init__()
         self.model = model
+
         self.tool_id = tool_id
         self.tool = tool
+        self.registry = {tool_id: tool}
+
+        assert num_matches(prompt_input_tag, teach_tool_prompt) == 1, f'there must be exactly one prompt input tag `{prompt_input_tag}` in your prompt to encourage the language model to use the designated tool'
+
         self.teach_tool_prompt = teach_tool_prompt
         self.exclude_filters = exclude_filters
 
-    def forward(self):
+    def forward(
+        self,
+        data: List[str]
+    ):
         raise NotImplementedError
