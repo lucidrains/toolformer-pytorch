@@ -182,6 +182,7 @@ invoke_tools(function_registry, text)
 - [ ] hook up gpt-j
 - [ ] test for a simple calculator eval dataset
 - [ ] add a default callback within the Toolformer that automatically aligns the text and checks for validity before the filtering step - if the text was not copied correctly, the filtering step is not valid.
+- [ ] make sure final model, trained on many `Toolformer` instances, can be invoked with multiple tools  - start with batch size of 1 and work way up
 
 ## Citations
 
