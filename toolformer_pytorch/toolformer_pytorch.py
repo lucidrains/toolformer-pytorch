@@ -547,6 +547,7 @@ class PromptDataset(Dataset):
         self.data = data
         self.prompt = prompt
         self.prompt_input_tag_regex = re.escape(prompt_input_tag)
+        self.tokenizer_encode = tokenizer_encode
 
     def __len__(self):
         return len(self.data)
@@ -554,7 +555,7 @@ class PromptDataset(Dataset):
     def __getitem__(self, idx):
         data_string = self.data[idx]
         data_with_prompt = re.sub(self.prompt_input_tag_regex, data_string, self.prompt)
-        token_ids = tokenizer.encode(data_with_prompt)
+        token_ids = self.tokenizer_encode(data_with_prompt)
         return torch.tensor(token_ids).long(), torch.tensor(len(token_ids)).long()
 
 def prompt_collate_fn(data, padding_value = 0):
