@@ -3,7 +3,7 @@ from setuptools import setup, find_packages
 setup(
   name = 'toolformer-pytorch',
   packages = find_packages(exclude=[]),
-  version = '0.0.28',
+  version = '0.0.29',
   license='MIT',
   description = 'Toolformer - Pytorch',
   author = 'Phil Wang',
@@ -22,7 +22,7 @@ setup(
     'einops>=0.4',
     'torch>=1.6',
     'tqdm',
-    'x-clip'
+    'x-clip>=0.14.3'
   ],
   classifiers=[
     'Development Status :: 4 - Beta',
