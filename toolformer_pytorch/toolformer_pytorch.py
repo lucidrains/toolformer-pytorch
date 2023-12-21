@@ -424,7 +424,7 @@ def weight_and_mask(
 ):
     t = get_arange_start_at_token_id(token_ids, token_id, pad_id)
     weights = weighting_fn(t)
-    return weights.masked_fill(weights == pad_id, 0.)
+    return weights.masked_fill(t == pad_id, 0.)
 
 FilteredResults = namedtuple('FilteredResults', [
     'num_passed',
