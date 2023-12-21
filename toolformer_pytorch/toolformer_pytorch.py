@@ -1,4 +1,4 @@
-import re
+import regex as re
 
 from functools import partial, wraps
 from collections import namedtuple
