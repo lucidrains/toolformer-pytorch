@@ -192,7 +192,7 @@ def invoke_tools(
     text: str,
     delimiter: str = '→',
     api_start = ' [',
-    api_stop = ' ]'
+    api_stop = ']'
 ) -> str:
     regex = create_function_regex(api_start, api_stop)
     replace_ = partial(replace_fn, registry, delimiter = delimiter)
